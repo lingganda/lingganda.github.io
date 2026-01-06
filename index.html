@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>世界杯时间换算工具（城市 → 北京时间）</title>
+
+  <!-- Luxon：可靠处理 IANA 时区 & 夏令时 -->
+  <!-- 备选CDN： https://unpkg.com/luxon@3/build/global/luxon.min.js -->
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
+
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif; background: #0b1020; color: #e8eefc; }
+    .wrap { max-width: 860px; margin: 0 auto; padding: 24px 16px 40px; }
+    .card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); border-radius: 16px; padding: 16px; box-shadow: 0 10px 24px rgba(0,0,0,0.35); }
+    h1 { font-size: 20px; margin: 0 0 8px; letter-spacing: .2px; }
+    .sub { opacity: .85; font-size: 13px; line-height: 1.5; margin-bottom: 16px; }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+    @media (min-width: 720px) { .grid { grid-template-columns: 1fr 1fr; } }
+    label { font-size: 12px; opacity: .9; display:block; margin: 0 0 6px; }
+    select, input { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.14); background: rgba(0,0,0,0.25); color: #e8eefc; outline: none; }
+    .row { display:flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    button { padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.18); background: rgba(99,102,241,0.25); color:#e8eefc; cursor:pointer; }
+    button:hover { background: rgba(99,102,241,0.35); }
+    .out { margin-top: 14px; padding: 12px; border-radius: 12px; background: rgba(0,0,0,0.25); border: 1px dashed rgba(255,255,255,0.18); }
+    .kv { display:flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .kv:last-child { border-bottom: 0; }
+    .k { opacity:.85; font-size: 13px; }
+    .v { font-weight: 600; font-size: 13px; text-align:right; }
+    .err { color: #ffb4b4; margin-top: 10px; font-size: 13px; }
+    .tiny { opacity:.7; font-size: 12px; margin-top: 10px; line-height: 1.5; }
+    .pill { display:inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.06); margin-right: 6px; }
+    a { color: #a5b4fc; }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>世界杯时间换算工具（主办城市 → 北京时间）</h1>
+      <div class="sub">
+        选城市 → 输入当地开球时间 → 自动输出北京时间（含夏令时）。
+        <span class="pill">适合挂公众号菜单「工具」</span>
+      </div>
+
+      <div class="grid">
+        <div>
+          <label for="city">主办城市（16城）</label>
+          <select id="city"></select>
+        </div>
+        <div>
+          <label for="dt">该城市当地开球时间</label>
+          <input id="dt" type="datetime-local" />
+        </div>
+
+        <div>
+          <label for="outTz">额外输出一个时区（可选）</label>
+          <select id="outTz">
+            <option value="">不需要</option>
+            <option value="Asia/Shanghai">北京时间（Asia/Shanghai）</option>
+            <option value="UTC">UTC</option>
+            <option value="America/Los_Angeles">洛杉矶（America/Los_Angeles）</option>
+            <option value="America/New_York">纽约（America/New_York）</option>
+            <option value="Europe/London">伦敦（Europe/London）</option>
+          </select>
+        </div>
+        <div>
+          <label>快捷</label>
+          <div class="row">
+            <button id="nowBtn" type="button">填入“现在”（按所选城市）</button>
+            <button id="clearBtn" type="button">清空</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <button id="calcBtn" type="button">换算 →</button>
+        <button id="copyBtn" type="button">复制结果</button>
+      </div>
+
+      <div id="error" class="err" style="display:none;"></div>
+
+      <div id="output" class="out" style="display:none;">
+        <div class="kv">
+          <div class="k">城市 / 时区</div>
+          <div class="v" id="oCity"></div>
+        </div>
+        <div class="kv">
+          <div class="k">输入（城市当地时间）</div>
+          <div class="v" id="oLocal"></div>
+        </div>
+        <div class="kv">
+          <div class="k">北京时间（Asia/Shanghai）</div>
+          <div class="v" id="oBJ"></div>
+        </div>
+        <div class="kv">
+          <div class="k">UTC</div>
+          <div class="v" id="oUTC"></div>
+        </div>
+        <div class="kv" id="extraRow" style="display:none;">
+          <div class="k" id="oExtraK"></div>
+          <div class="v" id="oExtraV"></div>
+        </div>
+      </div>
+
+      <div class="tiny">
+        说明：本工具使用 IANA 时区数据库，自动处理各城市夏令时。<br/>
+        部署建议：把该 HTML 托管到任意 HTTPS 网站（GitHub Pages / Vercel / Netlify），然后公众号菜单选择“跳转网页”。
+      </div>
+    </div>
+  </div>
+
+<script>
+  const { DateTime } = luxon;
+
+  // 2026 世界杯 16 主办城市（常用 IANA 时区）
+  const HOST_CITIES = [
+    { name: "Atlanta", tz: "America/New_York" },
+    { name: "Boston", tz: "America/New_York" },
+    { name: "Dallas", tz: "America/Chicago" },
+    { name: "Houston", tz: "America/Chicago" },
+    { name: "Kansas City", tz: "America/Chicago" },
+    { name: "Los Angeles", tz: "America/Los_Angeles" },
+    { name: "Miami", tz: "America/New_York" },
+    { name: "New York / New Jersey", tz: "America/New_York" },
+    { name: "Philadelphia", tz: "America/New_York" },
+    { name: "San Francisco Bay Area", tz: "America/Los_Angeles" },
+    { name: "Seattle", tz: "America/Los_Angeles" },
+    { name: "Toronto", tz: "America/Toronto" },
+    { name: "Vancouver", tz: "America/Vancouver" },
+    { name: "Mexico City", tz: "America/Mexico_City" },
+    { name: "Monterrey", tz: "America/Monterrey" },
+    { name: "Guadalajara", tz: "America/Mexico_City" },
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  const citySel = $("city");
+  const dtInput = $("dt");
+  const outTzSel = $("outTz");
+  const errorEl = $("error");
+  const outputEl = $("output");
+
+  function fmt(dt) {
+    // 例：2026-06-12 Fri 19:00 (GMT-7)
+    return dt.toFormat("yyyy-LL-dd ccc HH:mm 'GMT'ZZ");
+  }
+
+  function showError(msg) {
+    errorEl.style.display = msg ? "block" : "none";
+    errorEl.textContent = msg || "";
+  }
+
+  function setDefaultDatetimeForCity() {
+    const tz = citySel.value;
+    const nowInCity = DateTime.now().setZone(tz);
+    // datetime-local 需要 "YYYY-MM-DDTHH:MM"
+    dtInput.value = nowInCity.toFormat("yyyy-LL-dd'T'HH:mm");
+  }
+
+  function calc() {
+    showError("");
+    outputEl.style.display = "none";
+
+    const tz = citySel.value;
+    const cityName = citySel.options[citySel.selectedIndex].dataset.cityname;
+    const isoLocal = dtInput.value;
+
+    if (!isoLocal) {
+      showError("请先输入该城市的当地开球时间。");
+      return;
+    }
+
+    // 把“输入框里的时间”当作所选城市时区的当地时间
+    const local = DateTime.fromISO(isoLocal, { zone: tz });
+    if (!local.isValid) {
+      showError("时间格式无效，请重新选择。");
+      return;
+    }
+
+    const bj = local.setZone("Asia/Shanghai");
+    const utc = local.toUTC();
+
+    $("oCity").textContent = `${cityName} / ${tz}`;
+    $("oLocal").textContent = fmt(local);
+    $("oBJ").textContent = fmt(bj);
+    $("oUTC").textContent = fmt(utc);
+
+    // 可选额外时区输出
+    const extra = outTzSel.value;
+    const extraRow = $("extraRow");
+    if (extra && extra !== "Asia/Shanghai" && extra !== "UTC") {
+      const ex = local.setZone(extra);
+      $("oExtraK").textContent = `额外时区（${extra}）`;
+      $("oExtraV").textContent = fmt(ex);
+      extraRow.style.display = "flex";
+    } else {
+      extraRow.style.display = "none";
+    }
+
+    outputEl.style.display = "block";
+  }
+
+  function copyResult() {
+    if (outputEl.style.display === "none") {
+      showError("先点“换算”生成结果，再复制。");
+      return;
+    }
+    const text =
+`城市：${$("oCity").textContent}
+当地：${$("oLocal").textContent}
+北京时间：${$("oBJ").textContent}
+UTC：${$("oUTC").textContent}`;
+    navigator.clipboard?.writeText(text).then(() => {
+      showError("已复制到剪贴板 ✅");
+      setTimeout(() => showError(""), 1200);
+    }).catch(() => {
+      showError("复制失败：你的浏览器可能不支持剪贴板权限。你可以手动选中复制。");
+    });
+  }
+
+  // init
+  HOST_CITIES.forEach(c => {
+    const opt = document.createElement("option");
+    opt.value = c.tz;
+    opt.textContent = `${c.name}（${c.tz}）`;
+    opt.dataset.cityname = c.name;
+    citySel.appendChild(opt);
+  });
+
+  $("nowBtn").addEventListener("click", setDefaultDatetimeForCity);
+  $("clearBtn").addEventListener("click", () => { dtInput.value = ""; showError(""); outputEl.style.display="none"; });
+  $("calcBtn").addEventListener("click", calc);
+  $("copyBtn").addEventListener("click", copyResult);
+  citySel.addEventListener("change", () => { if (dtInput.value) calc(); });
+
+  // 默认填入当前城市“现在”
+  setDefaultDatetimeForCity();
+</script>
+</body>
+</html>
